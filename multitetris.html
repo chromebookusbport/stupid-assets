@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Apotris Multiplayer</title>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, onSnapshot, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.firebaseModules = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, addDoc, getDocs, updateDoc, doc, onSnapshot, increment };
+    </script>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --ui-bg: #1e1e24;
+            --text-color: #e0e0e0;
+            --accent: #6c5ce7;
+            --danger: #e74c3c;
+            --success: #2ecc71;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            background: #000;
+            border-radius: 12px;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        canvas {
+            display: block;
+            border-radius: 4px;
+        }
+
+        /* UI Overlays */
+        .overlay-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            border-radius: 12px;
+            transition: opacity 0.3s;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin: 0 0 20px 0;
+            background: linear-gradient(45deg, #00d2ff, #3a7bd5);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        h2 { margin-bottom: 20px; color: var(--accent); }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+            text-transform: uppercase;
+            font-weight: bold;
+            outline: none;
+            margin: 10px;
+            min-width: 200px;
+        }
+
+        .btn:hover { background: #5b4cc4; transform: scale(1.05); }
+        .btn:active { transform: scale(0.95); }
+        .btn-secondary { background: #444; }
+        .btn-danger { background: var(--danger); }
+
+        .controls-hint {
+            margin-top: 30px;
+            font-size: 0.9rem;
+            color: #888;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .key {
+            display: inline-block;
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            border-bottom: 2px solid #111;
+        }
+
+        #stats-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            min-width: 120px;
+        }
+
+        .stat-box {
+            background: var(--ui-bg);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        /* Lobby Browser */
+        #lobby-list {
+            width: 80%;
+            max-height: 200px;
+            overflow-y: auto;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .lobby-item {
+            padding: 10px;
+            border-bottom: 1px solid #222;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .lobby-item:hover { background: #222; }
+        .lobby-status { color: var(--success); font-size: 0.8rem; }
+
+        /* Garbage Meter */
+        #garbage-meter-container {
+            width: 10px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column-reverse;
+            margin-right: 10px;
+        }
+        #garbage-fill {
+            width: 100%;
+            height: 0%;
+            background: var(--danger);
+            transition: height 0.3s;
+        }
+
+        @media (max-width: 600px) {
+            #game-container { flex-direction: column; align-items: center; gap: 10px; }
+            #stats-panel { flex-direction: row; width: 100%; justify-content: center; }
+            .stat-box { padding: 10px; }
+            h1 { font-size: 2rem; }
+            #garbage-meter-container { display: none; } /* Hide on mobile for space */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- Garbage Meter (Multiplayer only) -->
+        <div id="garbage-meter-container" class="hidden">
+            <div id="garbage-fill"></div>
+        </div>
+
+        <!-- Main Canvas -->
+        <canvas id="gameCanvas" width="300" height="600"></canvas>
+        
+        <!-- Sidebar for Stats & Next Piece -->
+        <div id="stats-panel">
+            <div class="stat-box">
+                <div class="stat-label">Score</div>
+                <div id="score" class="stat-value">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Level</div>
+                <div id="level" class="stat-value">1</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Lines</div>
+                <div id="lines" class="stat-value">0</div>
+            </div>
+            <div class="stat-box" style="flex-grow: 1; display: flex; flex-direction: column;">
+                <div class="stat-label">Next</div>
+                <canvas id="nextCanvas" width="100" height="100" style="margin-top: 10px; align-self: center;"></canvas>
+                <div class="stat-label" style="margin-top: 20px;">Hold</div>
+                <canvas id="holdCanvas" width="100" height="100" style="margin-top: 10px; align-self: center;"></canvas>
+            </div>
+        </div>
+
+        <!-- Main Menu -->
+        <div id="menu-screen" class="overlay-screen">
+            <h1>Apotris Clone</h1>
+            <button id="soloBtn" class="btn">Solo Play</button>
+            <button id="multiBtn" class="btn btn-secondary">Multiplayer</button>
+            <div class="controls-hint">
+                <span class="key">←</span> <span class="key">→</span> Move<br>
+                <span class="key">↑</span> Rotate CW | <span class="key">Z</span> Rotate CCW<br>
+                <span class="key">Space</span> Hard Drop | <span class="key">↓</span> Soft Drop<br>
+                <span class="key">Shift</span> Hold Piece
+            </div>
+        </div>
+
+        <!-- Multiplayer Lobby -->
+        <div id="lobby-screen" class="overlay-screen hidden">
+            <h2>Network Play</h2>
+            <div id="lobby-status-text" style="color:#888; margin-bottom: 10px;">Looking for nearby signals...</div>
+            <div id="lobby-list">
+                <!-- Lobbies injected here -->
+            </div>
+            <button id="hostGameBtn" class="btn">Host New Game</button>
+            <button id="backToMenuBtn" class="btn btn-secondary">Back</button>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="waiting-screen" class="overlay-screen hidden">
+            <h2>Waiting for Opponent...</h2>
+            <div class="loader" style="margin-bottom:20px;">📡 Broadcasting signal...</div>
+            <button id="cancelHostBtn" class="btn btn-danger">Cancel</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameover-screen" class="overlay-screen hidden">
+            <h1 id="go-title">Game Over</h1>
+            <div id="go-message" style="margin-bottom: 20px; font-size: 1.2rem;"></div>
+            <button id="restartBtn" class="btn">Play Again</button>
+            <button id="mainMenuBtn" class="btn btn-secondary">Main Menu</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * APOTRIS CLONE - MULTIPLAYER UPDATE
+ */
+
+// --- Constants & Config ---
+const COLS = 10;
+const ROWS = 20;
+const BLOCK_SIZE = 30;
+const LOCK_DELAY = 500;
+
+const COLORS = {
+    I: '#00f0f0', O: '#f0f000', T: '#a000f0', S: '#00f000', Z: '#f00000', J: '#0000f0', L: '#f0a000',
+    Ghost: 'rgba(255, 255, 255, 0.2)', Grid: '#2a2a2a', Garbage: '#7f8c8d'
+};
+
+const SHAPES = {
+    I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    O: [[2,2],[2,2]],
+    T: [[0,3,0],[3,3,3],[0,0,0]],
+    S: [[0,4,4],[4,4,0],[0,0,0]],
+    Z: [[5,5,0],[0,5,5],[0,0,0]],
+    J: [[6,0,0],[6,6,6],[0,0,0]],
+    L: [[0,0,7],[7,7,7],[0,0,0]]
+};
+const SHAPE_KEYS = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+const SHAPE_COLORS = [null, COLORS.I, COLORS.O, COLORS.T, COLORS.S, COLORS.Z, COLORS.J, COLORS.L, COLORS.Garbage];
+
+// --- Audio ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const gainNode = audioCtx.createGain();
+gainNode.gain.value = 0.1; 
+gainNode.connect(audioCtx.destination);
+
+function playSound(type) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.connect(env);
+    env.connect(gainNode);
+    const now = audioCtx.currentTime;
+
+    switch (type) {
+        case 'move': osc.frequency.setValueAtTime(200, now); osc.frequency.exponentialRampToValueAtTime(100, now+0.05); env.gain.setValueAtTime(0.3, now); env.gain.exponentialRampToValueAtTime(0.01, now+0.05); osc.start(now); osc.stop(now+0.05); break;
+        case 'rotate': osc.type='triangle'; osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(400, now+0.05); env.gain.setValueAtTime(0.3, now); env.gain.exponentialRampToValueAtTime(0.01, now+0.1); osc.start(now); osc.stop(now+0.1); break;
+        case 'drop': osc.type='sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(50, now+0.2); env.gain.setValueAtTime(0.5, now); env.gain.exponentialRampToValueAtTime(0.01, now+0.2); osc.start(now); osc.stop(now+0.2); break;
+        case 'clear': osc.type='sine'; osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(1200, now+0.2); env.gain.setValueAtTime(0.5, now); env.gain.exponentialRampToValueAtTime(0.01, now+0.4); osc.start(now); osc.stop(now+0.4); break;
+        case 'garbage': osc.type='square'; osc.frequency.setValueAtTime(100, now); osc.frequency.linearRampToValueAtTime(50, now+0.3); env.gain.setValueAtTime(0.4, now); env.gain.exponentialRampToValueAtTime(0.01, now+0.3); osc.start(now); osc.stop(now+0.3); break;
+        case 'gameover': osc.type='sawtooth'; osc.frequency.setValueAtTime(100, now); osc.frequency.exponentialRampToValueAtTime(20, now+1.0); env.gain.setValueAtTime(0.5, now); env.gain.linearRampToValueAtTime(0, now+1.0); osc.start(now); osc.stop(now+1.0); break;
+    }
+}
+
+// --- Game State ---
+let board = [];
+let bag = [];
+let piece = null;
+let holdPiece = null;
+let holdUsed = false;
+let score = 0;
+let lines = 0;
+let level = 1;
+let gameOver = false;
+let dropCounter = 0;
+let lastTime = 0;
+let lockTimer = 0;
+let shakeAmount = 0;
+let particles = [];
+
+// Multiplayer State
+let isMultiplayer = false;
+let isHost = false;
+let lobbyId = null;
+let userId = null;
+let opponentGarbageCounter = 0; // Tracks how much garbage we've RECEIVED
+let pendingGarbage = 0; // Garbage waiting to enter board
+let db = null;
+let unsubscribeLobby = null;
+
+// Inputs
+const keys = {};
+const keyTimers = {};
+const DAS = 130;
+const ARR = 30;
+
+// DOM
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const nextCanvas = document.getElementById('nextCanvas');
+const nextCtx = nextCanvas.getContext('2d');
+const holdCanvas = document.getElementById('holdCanvas');
+const holdCtx = holdCanvas.getContext('2d');
+const uiScore = document.getElementById('score');
+const uiLevel = document.getElementById('level');
+const uiLines = document.getElementById('lines');
+const garbageMeter = document.getElementById('garbage-meter-container');
+const garbageFill = document.getElementById('garbage-fill');
+
+// UI Screens
+const menuScreen = document.getElementById('menu-screen');
+const lobbyScreen = document.getElementById('lobby-screen');
+const waitingScreen = document.getElementById('waiting-screen');
+const gameoverScreen = document.getElementById('gameover-screen');
+
+// --- Initialization & Firebase ---
+
+async function init() {
+    canvas.width = COLS * BLOCK_SIZE;
+    canvas.height = ROWS * BLOCK_SIZE;
+    
+    // Bind Inputs
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    // Buttons
+    document.getElementById('soloBtn').addEventListener('click', () => startLocalGame());
+    document.getElementById('multiBtn').addEventListener('click', showLobbies);
+    document.getElementById('hostGameBtn').addEventListener('click', hostGame);
+    document.getElementById('backToMenuBtn').addEventListener('click', () => showScreen(menuScreen));
+    document.getElementById('cancelHostBtn').addEventListener('click', leaveLobby);
+    document.getElementById('restartBtn').addEventListener('click', () => {
+        if(isMultiplayer) showLobbies();
+        else startLocalGame();
+    });
+    document.getElementById('mainMenuBtn').addEventListener('click', () => {
+        leaveLobby();
+        showScreen(menuScreen);
+    });
+
+    // Firebase Setup
+    if (window.firebaseModules) {
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore } = window.firebaseModules;
+        
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        db = getFirestore(app);
+
+        // Auth
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+            await signInAnonymously(auth);
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid;
+                console.log("Logged in as", userId);
+            }
+        });
+    }
+
+    requestAnimationFrame(update);
+}
+
+function showScreen(screen) {
+    document.querySelectorAll('.overlay-screen').forEach(el => el.classList.add('hidden'));
+    screen.classList.remove('hidden');
+}
+
+// --- Multiplayer Logic ---
+
+async function showLobbies() {
+    if (!userId || !db) return alert("Connecting to network...");
+    showScreen(lobbyScreen);
+    isMultiplayer = true;
+    
+    const { collection, getDocs } = window.firebaseModules;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const lobbiesRef = collection(db, 'artifacts', appId, 'public', 'data', 'lobbies');
+
+    const listDiv = document.getElementById('lobby-list');
+    listDiv.innerHTML = '<div style="padding:10px;">Scanning frequencies...</div>';
+
+    try {
+        const snapshot = await getDocs(lobbiesRef);
+        listDiv.innerHTML = '';
+        if (snapshot.empty) {
+            listDiv.innerHTML = '<div style="padding:10px;">No open lobbies found. Host one!</div>';
+            return;
+        }
+
+        snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            if (data.status === 'waiting') {
+                const el = document.createElement('div');
+                el.className = 'lobby-item';
+                el.innerHTML = `<span>Lobby #${docSnap.id.substr(0,4)}</span> <span class="lobby-status">OPEN</span>`;
+                el.onclick = () => joinGame(docSnap.id);
+                listDiv.appendChild(el);
+            }
+        });
+    } catch (e) {
+        console.error(e);
+        listDiv.innerHTML = '<div style="padding:10px; color:red;">Connection Error</div>';
+    }
+}
+
+async function hostGame() {
+    const { collection, addDoc } = window.firebaseModules;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    
+    try {
+        const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'lobbies'), {
+            hostId: userId,
+            status: 'waiting',
+            createdAt: Date.now(),
+            hostGarbage: 0,
+            guestGarbage: 0
+        });
+        lobbyId = docRef.id;
+        isHost = true;
+        showScreen(waitingScreen);
+        subscribeToLobby();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function joinGame(id) {
+    const { doc, updateDoc } = window.firebaseModules;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    lobbyId = id;
+    isHost = false;
+    
+    try {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lobbies', lobbyId), {
+            guestId: userId,
+            status: 'playing'
+        });
+        subscribeToLobby();
+        showScreen(document.getElementById('game-container')); // Hide overlay to show game
+        menuScreen.classList.add('hidden'); // Ensure menu hidden
+        lobbyScreen.classList.add('hidden');
+        waitingScreen.classList.add('hidden');
+        startGame();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function subscribeToLobby() {
+    const { doc, onSnapshot } = window.firebaseModules;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    
+    if (unsubscribeLobby) unsubscribeLobby();
+
+    unsubscribeLobby = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'lobbies', lobbyId), (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+
+        // Host Waiting Logic
+        if (isHost && data.status === 'playing' && document.getElementById('waiting-screen').classList.contains('hidden') === false) {
+            showScreen(document.getElementById('game-container'));
+            menuScreen.classList.add('hidden');
+            waitingScreen.classList.add('hidden');
+            startGame();
+        }
+
+        // Garbage Sync
+        // If I am Host, I read 'guestGarbage'. If I am Guest, I read 'hostGarbage'.
+        // This value is a monotonically increasing counter of TOTAL garbage sent by opponent.
+        const remoteTotal = isHost ? (data.guestGarbage || 0) : (data.hostGarbage || 0);
+        
+        if (remoteTotal > opponentGarbageCounter) {
+            const diff = remoteTotal - opponentGarbageCounter;
+            queueGarbage(diff);
+            opponentGarbageCounter = remoteTotal;
+        }
+
+        // Game Over Sync (Simple implementation: if status 'ended', stop)
+        if (data.status === 'ended' && !gameOver) {
+            endGame(true); // Win
+        }
+    }, (error) => console.log("Listen error", error));
+}
+
+async function sendGarbage(lines) {
+    if (!isMultiplayer || !lobbyId) return;
+    const { doc, updateDoc, increment } = window.firebaseModules;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    
+    const field = isHost ? 'hostGarbage' : 'guestGarbage';
+    
+    // Mapping: 2 lines->1, 3->2, 4->4.
+    let amount = 0;
+    if (lines === 2) amount = 1;
+    else if (lines === 3) amount = 2;
+    else if (lines >= 4) amount = 4;
+    
+    if (amount > 0) {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lobbies', lobbyId), {
+            [field]: increment(amount)
+        });
+    }
+}
+
+function leaveLobby() {
+    if (unsubscribeLobby) unsubscribeLobby();
+    lobbyId = null;
+    isMultiplayer = false;
+    showScreen(menuScreen);
+}
+
+// --- Game Logic ---
+
+function resetBoard() {
+    board = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+}
+
+function startLocalGame() {
+    isMultiplayer = false;
+    startGame();
+}
+
+function startGame() {
+    resetBoard();
+    bag = [];
+    holdPiece = null;
+    holdUsed = false;
+    score = 0;
+    lines = 0;
+    level = 1;
+    gameOver = false;
+    shakeAmount = 0;
+    particles = [];
+    pendingGarbage = 0;
+    opponentGarbageCounter = 0;
+    
+    document.querySelectorAll('.overlay-screen').forEach(el => el.classList.add('hidden'));
+    
+    if (isMultiplayer) {
+        garbageMeter.classList.remove('hidden');
+        garbageFill.style.height = '0%';
+    } else {
+        garbageMeter.classList.add('hidden');
+    }
+
+    updateUI();
+    spawnPiece();
+    lastTime = performance.now();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function endGame(winner = false) {
+    gameOver = true;
+    playSound('gameover');
+    
+    const title = document.getElementById('go-title');
+    const msg = document.getElementById('go-message');
+    
+    if (isMultiplayer) {
+        title.innerText = winner ? "VICTORY" : "DEFEAT";
+        msg.innerText = winner ? "Opponent topped out!" : "You were overwhelmed.";
+        // Update lobby status if we lost
+        if (!winner && lobbyId) {
+            const { doc, updateDoc } = window.firebaseModules;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lobbies', lobbyId), {
+                status: 'ended'
+            });
+        }
+    } else {
+        title.innerText = "Game Over";
+        msg.innerText = `Score: ${score}`;
+    }
+
+    showScreen(gameoverScreen);
+}
+
+// --- Garbage System ---
+
+function queueGarbage(amount) {
+    pendingGarbage += amount;
+    playSound('garbage');
+    updateUI(); // Updates meter
+    
+    // Add shake for drama
+    shakeAmount += 3;
+}
+
+function applyGarbage() {
+    if (pendingGarbage <= 0) return;
+    
+    // Cap garbage to not insta-kill from 0 (optional, but good for balance)
+    const amount = Math.min(pendingGarbage, 8); 
+    pendingGarbage -= amount;
+    
+    // Shift board up
+    for (let i = 0; i < amount; i++) {
+        board.shift(); // Remove top
+        // Add garbage line at bottom
+        const row = Array(COLS).fill(8); // 8 is Garbage color index
+        const hole = Math.floor(Math.random() * COLS);
+        row[hole] = 0;
+        board.push(row);
+    }
+    
+    updateUI();
+}
+
+// --- Core Gameplay ---
+
+function generateBag() {
+    const newBag = [1, 2, 3, 4, 5, 6, 7];
+    for (let i = newBag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newBag[i], newBag[j]] = [newBag[j], newBag[i]];
+    }
+    return newBag;
+}
+
+function getNextPieceType() {
+    if (bag.length === 0) bag = generateBag();
+    return bag.pop();
+}
+
+function spawnPiece() {
+    // Apply garbage before spawning next piece
+    if (pendingGarbage > 0) {
+        applyGarbage();
+    }
+
+    const typeIdx = getNextPieceType();
+    const type = SHAPE_KEYS[typeIdx-1];
+    
+    piece = {
+        matrix: SHAPES[type],
+        type: type,
+        x: Math.floor(COLS / 2) - Math.ceil(SHAPES[type][0].length / 2),
+        y: 0,
+        typeIdx: typeIdx
+    };
+
+    if (collide(board, piece)) {
+        endGame(false); // Lost
+    }
+    
+    holdUsed = false;
+}
+
+function hold() {
+    if (holdUsed || gameOver) return;
+    playSound('move');
+    if (holdPiece === null) {
+        holdPiece = piece.typeIdx;
+        spawnPiece();
+    } else {
+        const temp = piece.typeIdx;
+        const type = SHAPE_KEYS[holdPiece-1];
+        piece = {
+            matrix: SHAPES[type],
+            type: type,
+            x: Math.floor(COLS / 2) - Math.ceil(SHAPES[type][0].length / 2),
+            y: 0,
+            typeIdx: holdPiece
+        };
+        holdPiece = temp;
+    }
+    holdUsed = true;
+}
+
+function collide(scene, p) {
+    const m = p.matrix;
+    for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+            if (m[y][x] !== 0 && (scene[y + p.y] && scene[y + p.y][x + p.x]) !== 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function rotate(matrix, dir) {
+    const N = matrix.length;
+    const result = matrix.map((row, i) => row.map((val, j) => matrix[N - 1 - j][i]));
+    if (dir === -1) return rotate(rotate(result, 1), 1);
+    return result;
+}
+
+function playerRotate(dir) {
+    const prevMatrix = piece.matrix;
+    piece.matrix = rotate(piece.matrix, dir);
+    const kicks = [0, 1, -1, 2, -2]; 
+    let kicked = false;
+    const originalX = piece.x;
+    for (let offset of kicks) {
+        piece.x = originalX + offset;
+        if (!collide(board, piece)) { kicked = true; break; }
+    }
+    if (!kicked) {
+        piece.x = originalX;
+        piece.matrix = prevMatrix;
+    } else {
+        playSound('rotate');
+        if (collide(board, { ...piece, y: piece.y + 1 })) lockTimer = 0;
+    }
+}
+
+function playerMove(dir) {
+    piece.x += dir;
+    if (collide(board, piece)) piece.x -= dir;
+    else {
+        playSound('move');
+        if (collide(board, { ...piece, y: piece.y + 1 })) lockTimer = 0;
+    }
+}
+
+function playerDrop() {
+    piece.y++;
+    if (collide(board, piece)) {
+        piece.y--;
+        return true;
+    }
+    score += 1;
+    updateUI();
+    return false;
+}
+
+function hardDrop() {
+    let drops = 0;
+    while (!collide(board, { ...piece, y: piece.y + 1 })) {
+        piece.y++;
+        drops++;
+    }
+    score += (drops * 2);
+    playSound('drop');
+    shakeAmount = 5;
+    createParticles(piece.x, piece.y, piece.matrix, SHAPE_COLORS[piece.typeIdx]);
+    lockPiece();
+}
+
+function lockPiece() {
+    piece.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) board[y + piece.y][x + piece.x] = piece.typeIdx;
+        });
+    });
+
+    let linesCleared = 0;
+    outer: for (let y = ROWS - 1; y >= 0; y--) {
+        for (let x = 0; x < COLS; x++) {
+            if (board[y][x] === 0) continue outer;
+        }
+        board.splice(y, 1)[0];
+        board.unshift(Array(COLS).fill(0));
+        linesCleared++;
+        y++; 
+        for(let px=0; px<COLS; px++) createExplosion(px, y, SHAPE_COLORS[Math.floor(Math.random()*7)+1]);
+    }
+
+    if (linesCleared > 0) {
+        playSound('clear');
+        shakeAmount = linesCleared * 3;
+        lines += linesCleared;
+        const lineScores = [0, 40, 100, 300, 1200];
+        score += lineScores[linesCleared] * level;
+        if (Math.floor(lines / 10) + 1 > level) level++;
+        
+        // Multiplayer Attack
+        if (isMultiplayer && linesCleared >= 2) {
+            sendGarbage(linesCleared);
+        }
+    }
+    
+    updateUI();
+    spawnPiece();
+}
+
+// --- Input ---
+function handleKeyDown(e) {
+    if (gameOver || document.getElementById('game-container').classList.contains('hidden')) return;
+
+    if (!keys[e.code]) {
+        keys[e.code] = true;
+        if (e.code === 'ArrowLeft') playerMove(-1);
+        if (e.code === 'ArrowRight') playerMove(1);
+        if (e.code === 'ArrowDown') playerDrop();
+        if (e.code === 'ArrowUp' || e.code === 'KeyX') playerRotate(1);
+        if (e.code === 'KeyZ' || e.code === 'ControlLeft') playerRotate(-1);
+        if (e.code === 'Space') hardDrop();
+        if (e.code === 'ShiftLeft' || e.code === 'KeyC') hold();
+
+        if (['ArrowLeft', 'ArrowRight', 'ArrowDown'].includes(e.code)) {
+            keyTimers[e.code] = setTimeout(() => {
+                keyTimers[e.code + '_interval'] = setInterval(() => {
+                    if (e.code === 'ArrowLeft') playerMove(-1);
+                    if (e.code === 'ArrowRight') playerMove(1);
+                    if (e.code === 'ArrowDown') playerDrop();
+                }, ARR);
+            }, DAS);
+        }
+    }
+}
+
+function handleKeyUp(e) {
+    keys[e.code] = false;
+    if (keyTimers[e.code]) clearTimeout(keyTimers[e.code]);
+    if (keyTimers[e.code + '_interval']) clearInterval(keyTimers[e.code + '_interval']);
+}
+
+// --- Rendering & Effects ---
+
+function createParticles(bx, by, matrix, color) {
+    matrix.forEach((row, y) => {
+        row.forEach((val, x) => {
+            if (val !== 0) {
+                for(let i=0; i<3; i++) {
+                    particles.push({
+                        x: (bx + x) * BLOCK_SIZE + BLOCK_SIZE/2,
+                        y: (by + y) * BLOCK_SIZE + BLOCK_SIZE,
+                        vx: (Math.random() - 0.5) * 4,
+                        vy: (Math.random() - 0.5) * -4,
+                        life: 1.0,
+                        color: color
+                    });
+                }
+            }
+        });
+    });
+}
+
+function createExplosion(bx, by, color) {
+    const cx = bx * BLOCK_SIZE + BLOCK_SIZE/2;
+    const cy = by * BLOCK_SIZE + BLOCK_SIZE/2;
+    for(let i=0; i<8; i++) {
+        particles.push({
+            x: cx, y: cy, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1.0, color: 'white'
+        });
+    }
+}
+
+function drawBlock(ctx, x, y, color, isGhost = false) {
+    ctx.fillStyle = isGhost ? 'transparent' : color;
+    ctx.strokeStyle = isGhost ? color : 'rgba(0,0,0,0.2)';
+    
+    if (isGhost) {
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4);
+    } else {
+        let grad = ctx.createLinearGradient(x*BLOCK_SIZE, y*BLOCK_SIZE, x*BLOCK_SIZE, (y+1)*BLOCK_SIZE);
+        // Fallback if color is hex, simplistic gradient
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, color); 
+        
+        ctx.fillStyle = grad;
+        ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(x*BLOCK_SIZE, y*BLOCK_SIZE, BLOCK_SIZE, 4);
+        ctx.fillRect(x*BLOCK_SIZE, y*BLOCK_SIZE, 4, BLOCK_SIZE);
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(x*BLOCK_SIZE, (y+1)*BLOCK_SIZE - 4, BLOCK_SIZE, 4);
+        ctx.fillRect((x+1)*BLOCK_SIZE - 4, y*BLOCK_SIZE, 4, BLOCK_SIZE);
+        
+        // Garbage texture
+        if (color === COLORS.Garbage) {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.arc(x*BLOCK_SIZE + 15, y*BLOCK_SIZE + 15, 6, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+}
+
+function drawMatrix(matrix, offset, ctxToDraw = ctx, ghost = false) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                let color = SHAPE_COLORS[value];
+                if (ghost) color = COLORS.Ghost;
+                drawBlock(ctxToDraw, x + offset.x, y + offset.y, color, ghost);
+            }
+        });
+    });
+}
+
+function drawGhost() {
+    if(!piece) return;
+    const ghost = { ...piece };
+    while (!collide(board, { ...ghost, y: ghost.y + 1 })) ghost.y++;
+    if (ghost.y !== piece.y) {
+        drawMatrix(ghost.matrix, {x: ghost.x, y: ghost.y}, ctx, true);
+    }
+}
+
+function drawPreview(ctx, matrix, color) {
+    ctx.fillStyle = '#1e1e24';
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    if (!matrix) return;
+    const boxSize = 20;
+    const w = matrix[0].length * boxSize;
+    const h = matrix.length * boxSize;
+    const dx = (ctx.canvas.width - w) / 2;
+    const dy = (ctx.canvas.height - h) / 2;
+    matrix.forEach((row, y) => {
+        row.forEach((val, x) => {
+            if (val !== 0) {
+                ctx.fillStyle = color;
+                ctx.fillRect(dx + x*boxSize, dy + y*boxSize, boxSize-2, boxSize-2);
+            }
+        });
+    });
+}
+
+function update(time) {
+    const deltaTime = time - lastTime;
+    lastTime = time;
+
+    if (!gameOver && piece && document.getElementById('game-container').classList.contains('hidden') === false && !document.getElementById('waiting-screen').classList.contains('hidden') === false) {
+        dropCounter += deltaTime;
+        const speed = Math.max(50, 800 - (level * 50)); 
+        if (dropCounter > speed) {
+            if (playerDrop()) lockTimer += deltaTime; 
+            dropCounter = 0;
+        }
+        if (collide(board, { ...piece, y: piece.y + 1 })) {
+            lockTimer += deltaTime;
+            if (lockTimer > LOCK_DELAY) lockPiece();
+        }
+    }
+
+    if (shakeAmount > 0) {
+        shakeAmount *= 0.9;
+        if (shakeAmount < 0.5) shakeAmount = 0;
+    }
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const shakeX = (Math.random() - 0.5) * shakeAmount;
+    const shakeY = (Math.random() - 0.5) * shakeAmount;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
+    // Grid
+    ctx.strokeStyle = COLORS.Grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(let x=0; x<=COLS; x++) { ctx.moveTo(x*BLOCK_SIZE, 0); ctx.lineTo(x*BLOCK_SIZE, ROWS*BLOCK_SIZE); }
+    for(let y=0; y<=ROWS; y++) { ctx.moveTo(0, y*BLOCK_SIZE); ctx.lineTo(COLS*BLOCK_SIZE, y*BLOCK_SIZE); }
+    ctx.stroke();
+
+    drawMatrix(board, {x: 0, y: 0});
+    if (piece) {
+        drawGhost();
+        drawMatrix(piece.matrix, piece, ctx);
+    }
+
+    for(let i=particles.length-1; i>=0; i--) {
+        let p = particles[i];
+        p.x += p.vx; p.y += p.vy; p.life -= 0.05; p.vy += 0.5;
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+        ctx.fillRect(p.x, p.y, 4, 4);
+        ctx.globalAlpha = 1.0;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    ctx.restore();
+
+    drawPreview(nextCtx, bag.length > 0 ? SHAPES[SHAPE_KEYS[bag[bag.length-1]-1]] : null, bag.length > 0 ? SHAPE_COLORS[bag[bag.length-1]] : null);
+    drawPreview(holdCtx, holdPiece ? SHAPES[SHAPE_KEYS[holdPiece-1]] : null, holdPiece ? SHAPE_COLORS[holdPiece] : null);
+
+    requestAnimationFrame(update);
+}
+
+function updateUI() {
+    uiScore.innerText = score;
+    uiLines.innerText = lines;
+    uiLevel.innerText = level;
+    
+    // Update garbage meter
+    if (isMultiplayer) {
+        const height = Math.min(pendingGarbage * 5, 100); // 20 blocks max visual
+        garbageFill.style.height = height + '%';
+    }
+}
+
+init();
+
+</script>
+</body>
+</html>
